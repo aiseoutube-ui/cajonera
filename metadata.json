@@ -1,0 +1,7 @@
+{
+  "name": "La Cajonera",
+  "description": "Gestión de juntas y compras mayoristas para grupos de WhatsApp en Lima. Compra fácil, yapea y confirma tu pedido.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
