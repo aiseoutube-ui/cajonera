@@ -14,14 +14,41 @@ function getSs() {
   }
 }
 
+/**
+ * Función de inicialización para crear las hojas necesarias si no existen.
+ */
+function setup() {
+  const ss = getSs();
+  const sheets = ['PRODUCTOS', 'PEDIDOS', 'REGISTROS', 'CONFIG'];
+  sheets.forEach(name => {
+    if (!ss.getSheetByName(name)) ss.insertSheet(name);
+  });
+  
+  // Setup Config por defecto
+  const configSheet = ss.getSheetByName('CONFIG');
+  if (configSheet.getLastRow() === 0) {
+    configSheet.appendRow(['LLAVE', 'VALOR']);
+    configSheet.appendRow(['ESTADO_CAJONERA', 'ABIERTO']); // ABIERTO o CERRADO
+  }
+}
+
 function doGet(e) {
   try {
     const ss = getSs();
+    
+    // 1. Verificar Estado de la Cajonera
+    const configSheet = ss.getSheetByName('CONFIG');
+    const configData = configSheet.getDataRange().getValues();
+    let estado = "CERRADO";
+    configData.forEach(row => {
+      if (row[0] === 'ESTADO_CAJONERA') estado = row[1];
+    });
+
+    // 2. Obtener Productos
     const sheet = ss.getSheetByName('PRODUCTOS');
     const data = sheet.getDataRange().getValues();
-    if (data.length <= 1) return createJsonResponse([]);
     
-    const rawHeaders = data.shift();
+    const rawHeaders = data.shift() || [];
     const headers = rawHeaders.map(h => h.toString().toLowerCase().trim().replace(/\s+/g, '_'));
     
     const products = data.map((row, index) => {
@@ -31,7 +58,10 @@ function doGet(e) {
       return obj;
     }).filter(p => p.estado && p.estado.toString().toUpperCase().trim() === 'ACTIVO');
 
-    return createJsonResponse(products);
+    return createJsonResponse({ 
+      estado: estado, 
+      products: products 
+    });
   } catch (err) {
     return createJsonResponse({ status: 'error', message: err.toString() });
   }
@@ -43,10 +73,24 @@ function doPost(e) {
     lock.waitLock(30000);
     const params = JSON.parse(e.postData.contents);
     const ss = getSs();
+    
+    // ACCIÓN: REGISTRO DE ENTRADA (S/ 2.00)
+    if (params.action === 'REGISTER_ENTRY') {
+      const sheetRegistros = ss.getSheetByName('REGISTROS');
+      sheetRegistros.appendRow([
+        new Date(), 
+        params.userName, 
+        params.userPhone, 
+        'PAGO_PENDIENTE_CONFIRMAR', 
+        'S/ 2.00'
+      ]);
+      return createJsonResponse({ status: 'success', message: 'Registro guardado' });
+    }
+
+    // ACCIÓN: PEDIDO DE PRODUCTOS
     const sheetPedidos = ss.getSheetByName('PEDIDOS');
     const sheetProductos = ss.getSheetByName('PRODUCTOS');
     
-    // Guardar Pedido sin imagen (se enviará por WA)
     const pedidoId = 'PED-' + new Date().getTime();
     sheetPedidos.appendRow([
       pedidoId, 
