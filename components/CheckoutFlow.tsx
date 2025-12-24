@@ -1,6 +1,6 @@
 
-import React, { useState, useRef } from 'react';
-import { Camera, CheckCircle2, Copy, Send, Loader2, ArrowLeft, AlertTriangle } from 'lucide-react';
+import React, { useState } from 'react';
+import { CheckCircle2, Copy, Send, Loader2, ArrowLeft, AlertTriangle, MessageCircle } from 'lucide-react';
 import { CartItem } from '../types';
 import { YAPE_NUMBER, ADMIN_PHONE, API_URL } from '../constants';
 
@@ -15,10 +15,8 @@ interface CheckoutFlowProps {
 const CheckoutFlow: React.FC<CheckoutFlowProps> = ({ userName, cart, total, onBack, onSuccess }) => {
   const [step, setStep] = useState(1);
   const [isCopied, setIsCopied] = useState(false);
-  const [voucherBase64, setVoucherBase64] = useState<string | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const copyYape = () => {
     navigator.clipboard.writeText(YAPE_NUMBER.replace(/\s/g, ''));
@@ -26,42 +24,11 @@ const CheckoutFlow: React.FC<CheckoutFlowProps> = ({ userName, cart, total, onBa
     setTimeout(() => setIsCopied(false), 2000);
   };
 
-  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const img = new Image();
-      img.onload = () => {
-        const canvas = document.createElement('canvas');
-        const MAX_WIDTH = 800;
-        const MAX_HEIGHT = 800;
-        let width = img.width;
-        let height = img.height;
-        if (width > height) { if (width > MAX_WIDTH) { height *= MAX_WIDTH / width; width = MAX_WIDTH; } }
-        else { if (height > MAX_HEIGHT) { width *= MAX_HEIGHT / height; height = MAX_HEIGHT; } }
-        canvas.width = width;
-        canvas.height = height;
-        const ctx = canvas.getContext('2d');
-        ctx?.drawImage(img, 0, 0, width, height);
-        const dataUrl = canvas.toDataURL('image/jpeg', 0.6);
-        setVoucherBase64(dataUrl);
-        setStep(3);
-      };
-      img.src = event.target?.result as string;
-    };
-    reader.readAsDataURL(file);
-  };
-
   const submitOrder = async () => {
-    if (!voucherBase64) return;
     setIsUploading(true);
     setErrorMsg(null);
 
     try {
-      // IMPORTANTE: Para GAS, no enviamos cabecera Content-Type: application/json
-      // Esto evita el Preflight OPTIONS request que GAS no soporta.
       const response = await fetch(API_URL, {
         method: 'POST',
         mode: 'cors',
@@ -70,24 +37,27 @@ const CheckoutFlow: React.FC<CheckoutFlowProps> = ({ userName, cart, total, onBa
           userName,
           cart,
           total,
-          voucherBase64
+          voucherBase64: null // Ya no enviamos imagen
         }),
       });
 
       const result = await response.json();
       if (result.status === 'success') {
         const orderSummary = cart.map(i => `${i.quantity}x ${i.nombre}`).join(', ');
-        const waMsg = `Hola, soy ${userName}. Ya pedí: ${orderSummary} por la web y subí mi voucher. Total: S/${total.toFixed(2)}. Mi ID de pedido es: ${result.pedidoId}`;
+        const waMsg = `✅ *PEDIDO REGISTRADO*\n\nHola, soy *${userName}*.\nHe realizado un pedido por la web:\n📦 *Detalle:* ${orderSummary}\n💰 *Total:* S/${total.toFixed(2)}\n🆔 *Pedido:* ${result.pedidoId}\n\n👇 *ADJUNTO MI COMPROBANTE DE YAPE AQUÍ:*`;
         const waUrl = `https://wa.me/${ADMIN_PHONE}?text=${encodeURIComponent(waMsg)}`;
-        window.location.href = waUrl;
-        onSuccess();
+        
+        // Pequeño delay para que el usuario vea el éxito antes de saltar a WA
+        setTimeout(() => {
+          window.location.href = waUrl;
+          onSuccess();
+        }, 500);
       } else {
         setErrorMsg(result.message || 'Error al procesar el pedido.');
-        if (result.message && result.message.includes('Stock')) setStep(1);
       }
     } catch (error) {
       console.error(error);
-      setErrorMsg('Error de conexión con Google. Verifica si el script está publicado como "Anyone".');
+      setErrorMsg('Error de conexión. Inténtalo de nuevo.');
     } finally {
       setIsUploading(false);
     }
@@ -101,10 +71,10 @@ const CheckoutFlow: React.FC<CheckoutFlowProps> = ({ userName, cart, total, onBa
       </div>
 
       <div className="p-6 max-w-md mx-auto">
-        <div className="flex justify-between mb-8 relative px-4">
+        <div className="flex justify-center mb-8 relative px-10">
           <div className="absolute top-1/2 left-0 w-full h-0.5 bg-gray-100 -translate-y-1/2 z-0"></div>
-          {[1, 2, 3].map((s) => (
-            <div key={s} className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold z-10 border-4 ${step >= s ? 'bg-indigo-600 text-white border-white shadow-md' : 'bg-gray-100 text-gray-400 border-white'}`}>{s}</div>
+          {[1, 2].map((s) => (
+            <div key={s} className={`mx-4 w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold z-10 border-4 ${step >= s ? 'bg-indigo-600 text-white border-white shadow-md' : 'bg-gray-100 text-gray-400 border-white'}`}>{s}</div>
           ))}
         </div>
 
@@ -133,7 +103,12 @@ const CheckoutFlow: React.FC<CheckoutFlowProps> = ({ userName, cart, total, onBa
                 <span className="font-bold text-2xl text-indigo-600">S/ {total.toFixed(2)}</span>
               </div>
             </div>
-            <button onClick={() => { setErrorMsg(null); setStep(2); }} className="w-full bg-indigo-600 text-white py-4 rounded-xl font-bold text-lg">Continuar al Pago</button>
+            <button 
+              onClick={() => { setErrorMsg(null); setStep(2); }} 
+              className="w-full bg-indigo-600 text-white py-4 rounded-xl font-bold text-lg shadow-lg active:scale-95 transition-transform"
+            >
+              Continuar al Pago
+            </button>
           </div>
         )}
 
@@ -141,30 +116,44 @@ const CheckoutFlow: React.FC<CheckoutFlowProps> = ({ userName, cart, total, onBa
           <div className="animate-in slide-in-from-right duration-300 text-center">
             <div className="mb-6 flex justify-center">
               <div className="bg-indigo-50 p-6 rounded-full shadow-inner">
-                <img src="https://picsum.photos/seed/yape/100/100" alt="Yape" className="w-16 h-16 rounded-xl shadow-md" />
+                <img src="https://upload.wikimedia.org/wikipedia/commons/d/d1/Yape_logo.png" alt="Yape" className="w-16 h-16 object-contain" />
               </div>
             </div>
-            <h3 className="text-2xl font-bold mb-2">Yapea aquí</h3>
-            <p className="text-gray-500 mb-6">Monto: <span className="text-indigo-600 font-bold">S/ {total.toFixed(2)}</span></p>
-            <div onClick={copyYape} className="bg-gray-100 p-5 rounded-2xl flex items-center justify-between mb-8 cursor-pointer border-2 border-dashed border-indigo-200">
+            
+            <h3 className="text-2xl font-bold mb-2">Paso Final: Pagar</h3>
+            <p className="text-gray-500 mb-6">Yapea el monto total a este número:</p>
+            
+            <div onClick={copyYape} className="bg-gray-100 p-5 rounded-2xl flex items-center justify-between mb-4 cursor-pointer border-2 border-dashed border-indigo-200 active:bg-indigo-50 transition-colors">
               <span className="text-2xl font-mono font-bold tracking-widest text-gray-700">{YAPE_NUMBER}</span>
-              <div className="bg-white p-2 rounded-xl shadow-sm">{isCopied ? <CheckCircle2 className="text-green-500" /> : <Copy className="text-indigo-600" />}</div>
+              <div className="bg-white p-2 rounded-xl shadow-sm">
+                {isCopied ? <CheckCircle2 className="text-green-500" /> : <Copy className="text-indigo-600" />}
+              </div>
             </div>
-            <button onClick={() => fileInputRef.current?.click()} className="w-full bg-indigo-600 text-white py-4 rounded-xl font-bold text-lg flex items-center justify-center gap-3"><Camera size={24} /> Subir Foto de Voucher</button>
-            <input type="file" ref={fileInputRef} className="hidden" accept="image/*" capture="environment" onChange={handleFileChange} />
-          </div>
-        )}
+            {isCopied && <p className="text-green-600 text-xs font-bold mb-6 animate-bounce">¡Número copiado!</p>}
 
-        {step === 3 && (
-          <div className="animate-in slide-in-from-right duration-300">
-            <h3 className="text-xl font-bold mb-4 text-gray-800">¿Todo listo?</h3>
-            <div className="relative rounded-2xl overflow-hidden mb-8 border-4 border-indigo-100 shadow-lg bg-gray-100 aspect-[3/4]">
-              {voucherBase64 ? <img src={voucherBase64} className="w-full h-full object-cover" alt="Voucher" /> : <div className="flex items-center justify-center h-full text-gray-300"><Camera size={48} /></div>}
-              <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent"></div>
-              <button onClick={() => setStep(2)} className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-white text-indigo-600 text-sm font-bold px-6 py-2 rounded-full shadow-xl">Cambiar foto</button>
+            <div className="bg-amber-50 border border-amber-100 p-4 rounded-xl mb-8 text-left">
+              <p className="text-amber-800 text-sm font-medium leading-tight">
+                ⚠️ <b>Importante:</b> Al presionar el botón, registraremos tu pedido y te abriremos WhatsApp para que <b>adjuntes la foto de tu voucher</b>.
+              </p>
             </div>
-            <button disabled={isUploading} onClick={submitOrder} className="w-full bg-indigo-600 disabled:bg-gray-300 text-white py-5 rounded-2xl font-black text-xl flex items-center justify-center gap-3 shadow-2xl">
-              {isUploading ? <><Loader2 className="animate-spin" /> PROCESANDO...</> : <><Send size={24} /> ENVIAR PEDIDO</>}
+
+            <button 
+              disabled={isUploading} 
+              onClick={submitOrder} 
+              className="w-full bg-green-600 disabled:bg-gray-300 text-white py-5 rounded-2xl font-black text-xl flex items-center justify-center gap-3 shadow-2xl active:scale-95 transition-transform"
+            >
+              {isUploading ? (
+                <><Loader2 className="animate-spin" /> REGISTRANDO...</>
+              ) : (
+                <><MessageCircle size={24} /> YA YAPEÉ, ENVIAR</>
+              )}
+            </button>
+            
+            <button 
+              onClick={() => setStep(1)} 
+              className="mt-6 text-gray-400 font-bold text-sm"
+            >
+              Volver a revisar pedido
             </button>
           </div>
         )}

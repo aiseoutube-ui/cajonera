@@ -18,5 +18,5 @@ export interface OrderData {
   userName: string;
   cart: CartItem[];
   total: number;
-  voucherBase64: string;
+  voucherBase64?: string | null;
 }
